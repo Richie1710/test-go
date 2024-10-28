@@ -1,0 +1,55 @@
+resources:
+  - name: test-go-repo
+    type: git
+    source:
+      uri: https://github.com/Richie1710/test-go.git
+      branch: master  # Anpassen, falls ein anderer Branch verwendet wird
+
+  - name: compiled-binary
+    type: s3
+    source:
+      endpoint: https://obs.eu-de.otc.t-systems.com  # Endpoint für OBS in der Region "eu-de"
+      bucket: concourse-artifacts
+      access_key_id: ((obs-access-key.obs-access-key))
+      secret_access_key: ((obs-secret-key.obs-secret-key))
+      region_name: eu-de  # Region der OTC, z. B. "eu-de" für Deutschland
+      versioned_file: compiled-binaries/main_program
+
+  - name: hourly-timer
+    type: time
+    source:
+      interval: 1h  # Stündliches Intervall
+
+jobs:
+  - name: compile-go
+    public: true
+    plan:
+      - get: hourly-timer
+        trigger: true
+      - get: test-go-repo
+        trigger: true
+        version: every  # Holt die neueste Version des Repos bei jedem Lauf
+      - task: compile-test-go
+        config:
+          platform: linux
+          image_resource:
+            type: docker-image
+            source:
+              repository: golang
+              tag: "1.20"  # Go-Version
+          inputs:
+            - name: test-go-repo
+          outputs:
+            - name: compiled-binary
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                cd test-go-repo
+                go mod init test-go || true  # Falls kein go.mod vorhanden ist
+                go build -o ../compiled-binary/main_program main.go
+      - put: compiled-binary
+        params:
+          file: compiled-binary/main_program
+
